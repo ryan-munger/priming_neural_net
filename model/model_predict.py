@@ -26,31 +26,40 @@ def get_matching_words(fragment, word_list):
 def prime_model(logits, priming_words, tokenizer):
     for word in priming_words:
         if word in tokenizer.word_index:
-            logits[:, tokenizer.word_index[word]] += 5  # Boost logits instead of probabilities
+            word_idx = tokenizer.word_index[word]
+            logits[:, word_idx] += 2.5  # Boost logits significantly before softmax - tune as needed
 
-# Load words from training file
-with open("training-words-set.txt", "r") as file:
-    words = set(line.strip().lower() for line in file.readlines())
+def main():
+    with open("training-word-set.txt", "r") as file:
+        words = set(line.strip().lower() for line in file.readlines())
 
-# User input
-fragment = input("Enter a word fragment (e.g., W_NT): ").lower()
-priming_words = input("Enter priming words separated by spaces: ").split()
+    priming_words = input("\n\nEnter priming words separated by spaces: ").split()
+    # answer fragments
+    print("\n\nEnter 'exit' instead of fragment to exit.")
+    while True:
+        fragment = input("\nEnter Word Fragment (Ex. W_NT): ").lower()
+        if fragment == "exit":
+            break
 
-# Get valid words matching the fragment
-valid_words = get_matching_words(fragment, words)
-if not valid_words:
-    print("No valid words found for this fragment.")
-    exit()
+        # Get valid words matching the fragment
+        valid_words = get_matching_words(fragment, words)
+        if not valid_words:
+            print("No valid words found for this fragment.")
+            continue # skip to next fragment without answering
+        print(f"Possible solutions for fragment from word set: {valid_words}")
 
-# Get model predictions
-word_sequences = np.array([word_to_sequence(word)[0] for word in valid_words])  # Ensure shape is (batch_size, 1)
-logits = model.predict(word_sequences)
+        # Get model predictions
+        word_sequences = np.array([word_to_sequence(word)[0] for word in valid_words])  # Ensure shape is (batch_size, 1)
+        logits = model.predict(word_sequences)
 
-# Apply priming
-prime_model(logits, priming_words, tokenizer)
+        # modifies current logits; need to re-prime every time since new logits from model.predict
+        prime_model(logits, priming_words, tokenizer)
 
-# Select the best word based on modified logits
-best_word_index = np.argmax(logits, axis=1)[0]
-best_word = next(word for word, index in tokenizer.word_index.items() if index == best_word_index)
+        # Select the best word based on modified logits
+        best_word_index = np.argmax(logits, axis=1)[0]
+        best_word = next(word for word, index in tokenizer.word_index.items() if index == best_word_index)
 
-print(f"Predicted word: {best_word}")
+        print(f"Predicted word: {best_word.upper()}")
+
+if __name__ == "__main__":
+    main()

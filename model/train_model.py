@@ -8,41 +8,50 @@ import numpy as np
 import pickle
 from collections import Counter
 
-# Disable oneDNN custom operations warning
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+def getWordSet(path: str):
+    with open(path, "r") as file:
+        return [line.strip().lower() for line in file.readlines()]
 
-# Read words from file
-with open("training-word-set.txt", "r") as file:
-    words = [line.strip().lower() for line in file.readlines()]
+def main():
+    # Disable oneDNN custom operations warning
+    os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
-# Count word frequencies
-word_counts = Counter(words)
+    words = getWordSet("training-word-set.txt")
 
-# Tokenize words
-tokenizer = Tokenizer()
-tokenizer.fit_on_texts(words)
+    # Count word frequencies
+    word_counts = Counter(words)
 
-# Convert words to sequences
-sequences = tokenizer.texts_to_sequences(words)
-X = pad_sequences(sequences, maxlen=1)  # Only one token per word
+    # Tokenize words
+    tokenizer = Tokenizer()
+    tokenizer.fit_on_texts(words)
 
-# Convert targets to probability distribution
-word_indices = np.array([tokenizer.word_index[word] for word in words])
-y = tf.keras.utils.to_categorical(word_indices, num_classes=len(tokenizer.word_index) + 1)
+    # Convert words to sequences
+    sequences = tokenizer.texts_to_sequences(words)
+    X = pad_sequences(sequences, maxlen=1)  # Only one token per word
 
-# Define a simple feedforward neural network
-model = Sequential([
-    Embedding(input_dim=len(tokenizer.word_index) + 1, output_dim=8, input_length=1),
-    Flatten(),
-    Dense(len(tokenizer.word_index) + 1, activation="softmax")  # Predicts word probabilities
-])
+    # Convert targets to categorical labels
+    y = tf.keras.utils.to_categorical([tokenizer.word_index[word] for word in words], num_classes=len(tokenizer.word_index) + 1)
 
-model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
+    # Create sample weights based on word frequency
+    sample_weights = np.array([word_counts[word] for word in words], dtype=np.float32)
+    sample_weights /= sample_weights.max()  # Normalize weights to [0,1] range
 
-# Train the model
-model.fit(X, y, epochs=50, batch_size=8, shuffle=True)  # Reducing epochs since learning is simpler
+    # Define a simple feedforward neural network
+    model = Sequential([
+        Embedding(input_dim=len(tokenizer.word_index) + 1, output_dim=8, input_length=1),
+        Flatten(),
+        Dense(len(tokenizer.word_index) + 1, activation="softmax")  # Predicts word probabilities
+    ])
 
-# Save the model and tokenizer
-model.save("word_model.keras")
-with open("tokenizer.pkl", "wb") as f:
-    pickle.dump(tokenizer, f)
+    model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
+
+    # Train the model with sample weighting
+    model.fit(X, y, epochs=50, batch_size=8, sample_weight=sample_weights, shuffle=True)
+
+    # Save the model and tokenizer
+    model.save("word_model.keras")
+    with open("tokenizer.pkl", "wb") as f:
+        pickle.dump(tokenizer, f)
+
+if __name__ == "__main__":
+    main()
