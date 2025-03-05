@@ -3,11 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Environments
+# venv
 .env
 .venv
 env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+priming-venv/
+
+# saved model files
+*.keras
+*.pkl
