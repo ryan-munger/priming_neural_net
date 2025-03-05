@@ -47,6 +47,7 @@ def main():
             print("No valid words found for this fragment.")
             continue # skip to next fragment without answering
         print(f"Possible solutions for fragment from word set: {valid_words}")
+        valid_word_indices = [tokenizer.word_index[word] for word in valid_words if word in tokenizer.word_index]
 
         # Get model predictions
         word_sequences = np.array([word_to_sequence(word)[0] for word in valid_words])  # Ensure shape is (batch_size, 1)
@@ -55,8 +56,12 @@ def main():
         # modifies current logits; need to re-prime every time since new logits from model.predict
         prime_model(logits, priming_words, tokenizer)
 
-        # Select the best word based on modified logits
-        best_word_index = np.argmax(logits, axis=1)[0]
+        # Mask logits so that only valid solutions are considered (similar to human reasoning checks)
+        masked_logits = np.full(logits.shape, -np.inf)  # Set default to very low probability
+        masked_logits[:, valid_word_indices] = logits[:, valid_word_indices]  # Keep valid words
+
+        # Select the best word from the valid set of solutions
+        best_word_index = np.argmax(masked_logits, axis=1)[0]
         best_word = next(word for word, index in tokenizer.word_index.items() if index == best_word_index)
 
         print(f"Predicted word: {best_word.upper()}")
