@@ -5,6 +5,7 @@ import pickle
 from Levenshtein import distance
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from collections import defaultdict
+from scipy.special import softmax
 
 # Disable oneDNN custom operations warning
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -143,6 +144,13 @@ def main():
         
         # Get model predictions 
         logits = model.predict([word_sequences, char_sequences])
+
+        # Print the probabilities of each valid word (strength)
+        probs = softmax(logits[0])
+        for word in valid_words:
+            idx = word_tokenizer.word_index[word]
+            print(f"{word:>10}: prob={probs[idx]:.6f}")
+
         
         valid_word_indices = [word_tokenizer.word_index[word] for word in valid_words 
                              if word in word_tokenizer.word_index]

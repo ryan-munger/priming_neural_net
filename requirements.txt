@@ -1,3 +1,4 @@
 tensorflow==2.18.0
 numpy==2.0.2
-python-Levenshtein>=0.20.0
+Levenshtein==0.27.1
+scipy==1.15.2
