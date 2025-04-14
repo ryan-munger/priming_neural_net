@@ -145,11 +145,12 @@ def main():
         # Get model predictions 
         logits = model.predict([word_sequences, char_sequences])
 
-        # Print the probabilities of each valid word (strength)
-        probs = softmax(logits[0])
+        # Print the probabilities of each valid word (strength) before priming
+        print("Strength of valid words before priming effects:")
+        probs_before = softmax(logits[0])
         for word in valid_words:
             idx = word_tokenizer.word_index[word]
-            print(f"{word:>10}: prob={probs[idx]:.6f}")
+            print(f"{word:>10}: prob={probs_before[idx]:.6f}")
 
         
         valid_word_indices = [word_tokenizer.word_index[word] for word in valid_words 
@@ -157,6 +158,13 @@ def main():
 
         # Prime the model with orthographic spread activation
         prime_model_with_spread(logits, priming_words, word_tokenizer, all_words)
+
+        # Print the probabilities of each valid word (strength) after priming
+        print("\nStrength of valid words after priming effects:")
+        probs_after = softmax(logits[0])
+        for word in valid_words:
+            idx = word_tokenizer.word_index[word]
+            print(f"{word:>10}: prob={probs_after[idx]:.6f}")
 
         # Mask logits so that only valid solutions are considered 
         masked_logits = np.full(logits.shape, -np.inf)
