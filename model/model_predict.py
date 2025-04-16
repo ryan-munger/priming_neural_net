@@ -147,10 +147,18 @@ def main():
 
         # Print the probabilities of each valid word (strength) before priming
         print("Strength of valid words before priming effects:")
+        sum_valid_prob_before = 0
         probs_before = softmax(logits[0])
         for word in valid_words:
             idx = word_tokenizer.word_index[word]
-            print(f"{word:>10}: prob={probs_before[idx]:.6f}")
+            print(f"{word:>5}: prob={probs_before[idx]:.10f}")
+            sum_valid_prob_before += probs_before[idx]
+
+        print("\nProbability of valid word selection before priming effects:")
+        for word in valid_words:
+            idx = word_tokenizer.word_index[word]
+            pct = (probs_before[idx] / sum_valid_prob_before) * 100
+            print(f"{word:>5}: prob={pct:.4f}%")
 
         
         valid_word_indices = [word_tokenizer.word_index[word] for word in valid_words 
@@ -161,10 +169,18 @@ def main():
 
         # Print the probabilities of each valid word (strength) after priming
         print("\nStrength of valid words after priming effects:")
+        sum_valid_prob_after = 0
         probs_after = softmax(logits[0])
         for word in valid_words:
             idx = word_tokenizer.word_index[word]
-            print(f"{word:>10}: prob={probs_after[idx]:.6f}")
+            print(f"{word:>5}: prob={probs_after[idx]:.10f}")
+            sum_valid_prob_after += probs_after[idx]
+
+        print("\nProbability of valid word selection after priming effects:")
+        for word in valid_words:
+            idx = word_tokenizer.word_index[word]
+            pct = (probs_after[idx] / sum_valid_prob_after) * 100
+            print(f"{word:>5}: prob={pct:.4f}%")
 
         # Mask logits so that only valid solutions are considered 
         masked_logits = np.full(logits.shape, -np.inf)
