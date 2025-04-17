@@ -111,7 +111,7 @@ def prime_with_embeddings(priming_words, target_words, embedding_model, char_to_
         
         # Direct match gets maximum boost
         if target_word in priming_words:
-            priming_effects[target_word] = 2.0  # Direct prime
+            priming_effects[target_word] = 3.0  # Direct prime
         else:
             # Scale the effect
             priming_effects[target_word] = combined_effect * 1.5
