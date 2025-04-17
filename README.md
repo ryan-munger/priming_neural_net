@@ -1,188 +1,139 @@
-# Project setup
-- setup local virtual environment for the project
-    - `python -m venv priming-venv` 
-    - `.\priming-venv\Scripts\activate` (windows) `source ./priming-venv/bin/activate` (Mac/ Linux) - activates venv
-        - you should see a (venv) in your command line prompt
-- install python dependencies from requirements.txt
-    - `pip install -r requirements.txt`
-
-# Perceptual Priming Neural Network
-
-This project models **perceptual priming** using a dual-pathway neural network trained on common English words. It simulates how **prior exposure** to certain words (or visually similar words) can bias recognition in **word fragment completion tasks**. The model learns from both **word frequency** and **orthographic structure**, and supports **activation spreading** during priming.
-
----
+# Perceptual Priming Neural Network Model
 
 ## Overview
 
-The model integrates two key cognitive components:
+This repository contains a neural network model designed to simulate perceptual priming effects in word recognition. The model learns words based on their orthographic (visual) features and frequency, then demonstrates how prior exposure to certain words increases the activation of those words and orthographically similar words during subsequent word recognition tasks.
 
-- **Word identity** (learned through frequency of exposure)
-- **Orthographic similarity** (learned through character sequences)
+## Cognitive Science Background
 
-It is implemented using **TensorFlow/Keras** and trained on a word list with frequency weighting. During inference, the model accepts priming inputs and boosts the activations of both the primed words and their **orthographic neighbors**.
+Perceptual priming is a memory phenomenon where exposure to a stimulus influences response to a later stimulus, without conscious awareness. In word recognition, this means seeing a word makes it (and visually similar words) easier to identify later. This project implements several key cognitive science principles:
 
----
+1. **Frequency Effects**: Words encountered more frequently are represented more strongly in memory and are recognized more easily (Broadbent, 1967; Murray & Forster, 2004)
 
-## Architecture 
+2. **Orthographic Similarity**: Words sharing visual features with primed words also benefit from spreading activation (Coltheart et al., 2001)
 
-### Model Inputs
+3. **Priming as Residual Activation**: The model implements priming as residual activation that spreads through a neural network (McClelland & Rumelhart, 1981)
 
-| Input Name | Description | Shape |
-|------------|-------------|-------|
-| `word_input` | Integer ID representing the word | `(batch_size, 1)` |
-| `char_input` | Character-level encoding of the word | `(batch_size, max_word_length)` |
+4. **Automatic vs. Conscious Processing**: The priming effect happens automatically, without explicit memory recall, matching how human implicit memory operates
 
----
+## Model Architecture
 
-### Word Embedding Path
+The model consists of a neural network with the following structure:
 
-1. **Embedding Layer**
-   - Learns an 8-dimensional vector for each word index.
-   - Captures frequency and identity-based word representations.
-   - _Shape_: `(batch_size, 1, 8)`
+### Input Layer
+- **Word Input**: One-hot encoded representation of word identity
+- **Character Input**: Character-level representation (capturing orthographic features)
 
-2. **Flatten Layer**
-   - Converts `(1, 8)` to `(8,)` for merging with orthographic data.
-   - _Shape_: `(batch_size, 8)`
+This dual-input approach mirrors theories of parallel processing in word recognition (Seidenberg & McClelland, 1989), where both whole-word and sub-lexical features contribute to word identification.
 
----
+### Embedding Layers
+- **Word Embedding Layer**: 32-dimensional representation of word identity
+- **Character Embedding Layer**: 16-dimensional representation of each character
 
-### Character Embedding Path
+These embedding layers create distributed representations that capture similarity relationships between words (Rogers & McClelland, 2004).
 
-1. **Character Embedding**
-   - Learns a 4D vector for each character.
-   - _Shape_: `(batch_size, max_word_length, 4)`
+### Feature Processing
+- **Flatten Layer**: For word embeddings
+- **LSTM Layer (24 units)**: For character sequence processing
 
-2. **LSTM Layer**
-   - Processes character sequences to extract orthographic patterns.
-   - Mimics visual form processing in human reading.
-   - _Shape_: `(batch_size, 16)`
+The LSTM layer processes character sequences and extracts orthographic patterns, similar to how the visual word form area in the brain processes letter patterns (Dehaene et al., 2005).
 
----
+### Integration and Representation
+- **Concatenation Layer**: Combines word identity and orthographic features
+- **Dense Layer (64 units, ReLU)**: Initial integration of features
+- **Dropout Layer (0.2)**: Improves generalization
+- **Bottleneck Layer (24 units, ReLU)**: Creates a frequency-weighted representation
 
-### Combination & Prediction
+The bottleneck layer serves as the model's learned representation space, with activation patterns that reflect both word identity and frequency, similar to how words are represented in the brain's lexical processing networks (Pulvermüller, 1999).
 
-1. **Concatenation Layer**
-   - Merges flattened word embedding and LSTM output.
-   - _Shape_: `(batch_size, 24)`
+### Output Layer
+- **Dense Layer (vocabulary size, Softmax)**: Word identification output
 
-2. **Dense + Softmax Output**
-   - Outputs a probability distribution over the vocabulary.
-   - Uses softmax activation.
-   - _Shape_: `(batch_size, vocab_size + 1)`
+## Training Process
 
----
+The model is trained with sample weights proportional to word frequency, ensuring that high-frequency words develop stronger representations. This mirrors the frequency effects observed in human lexical processing, where common words are recognized faster and more accurately.
 
-## Cognitive Parallels
+```python
+# Apply log transformation to compress the range of frequencies
+sample_weights = np.log1p(sample_weights)  # log(1+x) to handle counts of 1
+sample_weights /= sample_weights.max()  # Normalize to [0,1]
 
-| Component | Simulated Cognitive Process |
-|----------|------------------------------|
-| Word embedding | Long-term word familiarity |
-| Char-level LSTM | Visual word form encoding |
-| Concatenation | Integration of identity + form |
-| Logit boosting | Spreading activation from priming |
-| Softmax | Lexical access & decision |
+# Scale weights more aggressively to emphasize frequency differences
+sample_weights = sample_weights ** 2  # Square the weights to emphasize high frequency words
+```
 
----
+This implementation of frequency effects is consistent with power law relationships between word frequency and recognition speed in human subjects (Howes & Solomon, 1951).
 
-## Priming Simulation
+## Priming Implementation
 
-During prediction:
-- **Priming words** are given a logit boost to make them more competitive.
-- **Orthographic neighbors** of primed words are also boosted (scaled by similarity).
-- Only valid completions (can solve the word fragment) are considered.
+The priming mechanism works through several cognitive science-informed steps:
 
----
+1. **Direct Activation Boost**: Previously seen words receive a direct activation boost, mimicking residual activation in neural pathways
 
-## File Descriptions
+2. **Spreading Activation**: Orthographically similar words receive proportional activation boosts based on:
+   - Orthographic similarity (visual form)
+   - Similarity in the learned representation space (embedding similarity)
 
-- `train_model.py`: Trains the model.
-- `model_predict.py`: Loads the model, accepts priming words, and completes word fragments.
-- `training-word-set.txt`: The vocabulary list with frequency (via repetition) data.
-- `word_tokenizer.pkl` / `char_mapping.pkl`: Saved tokenizers and mappings.
-- `orthographic_word_model.keras`: The trained & saved model.
+3. **Combined Priming Effect**: The final priming effect combines direct and spreading activation, consistent with interactive activation models of word recognition (McClelland & Rumelhart, 1981)
 
----
+```python
+# Combined effect (weighting orthographic similarity higher for perceptual priming)
+combined_effect = (0.4 * embedding_effect) + (0.6 * ortho_effect)
 
-## Example Usage & Output
+# Direct match gets maximum boost
+if target_word in priming_words:
+    priming_effects[target_word] = 3.0  # Direct prime
+else:
+    # Scale the effect for spreading activation
+    priming_effects[target_word] = combined_effect * 1.5
+```
 
-```bash
-$ python train_model.py
+## Usage
 
-$ python model_predict.py
+### Training the Model
+```python
+python train_model.py
+```
 
-Enter priming words separated by spaces: WENT, WAGE, TOOL
+This trains the model on your word set and saves:
+- The main model (`priming_model.keras`)
+- An embedding extraction model (`embedding_model.keras`)
+- Tokenizers and mapping files
 
-Orthographic neighbors of priming words:
-  went,: went (0.80), west (0.60), rent (0.60), want (0.60), sent (0.60)
-  wage,: wage (0.80), page (0.60), wake (0.60), wave (0.60), ages (0.60)
-  tool: pool (0.75), cool (0.75), took (0.75), toll (0.75)
+### Running Priming Simulations
+```python
+python priming_simulation.py
+```
+
+This allows you to:
+1. Specify priming words
+2. Enter word fragments (e.g., "W_RD")
+3. See how priming affects possible completions
+4. Visualize the embedding space and priming effects
 
 
-Enter 'exit' instead of a fragment to exit.
+## Cognitive Science Implications
 
-Enter Word Fragment (Ex. W_NT): W_NT
-Possible solutions for fragment from word set: ['went', 'want']
-1/1 ━━━━━━━━━━━━━━━━━━━━ 0s 120ms/step
+This model demonstrates several important cognitive science principles:
 
-Priming activation spread:
-  wage,: +2.0 (direct prime)
-  wage: +0.96 (orthographic neighbor)
-  pool: +0.90 (orthographic neighbor)
-  tool: +2.0 (direct prime)
-  cool: +0.90 (orthographic neighbor)
-  went: +0.96 (orthographic neighbor)
-  went,: +2.0 (direct prime)
-  toll: +0.90 (orthographic neighbor)
-  took: +0.90 (orthographic neighbor)
+1. **Distributed Representations**: Words are represented as patterns of activation across multiple units rather than localized representations
 
-Predicted word: WENT
+2. **Interactive Activation**: Activation flows bidirectionally between word and sub-word features
 
-Orthographic similarity of possible completions to priming words:
-  went (PREDICTED): went,: 0.80, wage,: 0.20, tool: 0.00
-  want: went,: 0.60, wage,: 0.40, tool: 0.00
+3. **Automaticity**: Priming occurs automatically without explicit recall
 
-Enter Word Fragment (Ex. W_NT): _OOL
-Possible solutions for fragment from word set: ['tool', 'pool', 'cool']
-1/1 ━━━━━━━━━━━━━━━━━━━━ 0s 100ms/step
+4. **Graded Effects**: Priming strength varies continuously based on similarity, rather than being all-or-nothing
 
-Priming activation spread:
-  wage,: +2.0 (direct prime)
-  wage: +0.96 (orthographic neighbor)
-  pool: +0.90 (orthographic neighbor)
-  tool: +2.0 (direct prime)
-  cool: +0.90 (orthographic neighbor)
-  went: +0.96 (orthographic neighbor)
-  went,: +2.0 (direct prime)
-  toll: +0.90 (orthographic neighbor)
-  took: +0.90 (orthographic neighbor)
+5. **Frequency as Learning History**: The model's frequency effects emerge from its training history, similar to how humans learn language through repeated exposure
 
-Predicted word: TOOL
+## References
 
-Orthographic similarity of possible completions to priming words:
-  tool (PREDICTED): went,: 0.00, wage,: 0.00, tool: 1.00
-  pool: went,: 0.00, wage,: 0.00, tool: 0.75
-  cool: went,: 0.00, wage,: 0.00, tool: 0.75
-
-Enter Word Fragment (Ex. W_NT): _AGE
-Possible solutions for fragment from word set: ['page', 'wage']
-1/1 ━━━━━━━━━━━━━━━━━━━━ 0s 21ms/step
-
-Priming activation spread:
-  wage,: +2.0 (direct prime)
-  wage: +0.96 (orthographic neighbor)
-  pool: +0.90 (orthographic neighbor)
-  tool: +2.0 (direct prime)
-  cool: +0.90 (orthographic neighbor)
-  went: +0.96 (orthographic neighbor)
-  went,: +2.0 (direct prime)
-  toll: +0.90 (orthographic neighbor)
-  took: +0.90 (orthographic neighbor)
-
-Predicted word: PAGE
-
-Orthographic similarity of possible completions to priming words:
-  page (PREDICTED): went,: 0.00, wage,: 0.60, tool: 0.00
-  wage: went,: 0.20, wage,: 0.80, tool: 0.00
-
-Enter Word Fragment (Ex. W_NT): exit
+- Broadbent, D. E. (1967). Word-frequency effect and response bias. *Psychological Review, 74(1)*, 1-15.
+- Coltheart, M., Rastle, K., Perry, C., Langdon, R., & Ziegler, J. (2001). DRC: A dual route cascaded model of visual word recognition and reading aloud. *Psychological Review, 108(1)*, 204-256.
+- Dehaene, S., Cohen, L., Sigman, M., & Vinckier, F. (2005). The neural code for written words: A proposal. *Trends in Cognitive Sciences, 9(7)*, 335-341.
+- Howes, D. H., & Solomon, R. L. (1951). Visual duration threshold as a function of word-probability. *Journal of Experimental Psychology, 41(6)*, 401-410.
+- McClelland, J. L., & Rumelhart, D. E. (1981). An interactive activation model of context effects in letter perception: Part I. An account of basic findings. *Psychological Review, 88(5)*, 375-407.
+- Murray, W. S., & Forster, K. I. (2004). Serial mechanisms in lexical access: The rank hypothesis. *Psychological Review, 111(3)*, 721-756.
+- Pulvermüller, F. (1999). Words in the brain's language. *Behavioral and Brain Sciences, 22(2)*, 253-279.
+- Rogers, T. T., & McClelland, J. L. (2004). *Semantic cognition: A parallel distributed processing approach*. MIT Press.
+- Seidenberg, M. S., & McClelland, J. L. (1989). A distributed, developmental model of word recognition and naming. *Psychological Review, 96(4)*, 523-568.
