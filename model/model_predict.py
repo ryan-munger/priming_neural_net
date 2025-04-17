@@ -3,35 +3,48 @@ import tensorflow as tf
 import numpy as np
 import pickle
 from Levenshtein import distance
-from tensorflow.keras.preprocessing.sequence import pad_sequences
 from collections import defaultdict
 from scipy.special import softmax
+import matplotlib.pyplot as plt
 
-# Disable oneDNN custom operations warning
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
-# Load trained model and tokenizer
-model = tf.keras.models.load_model("priming_model.keras")
-with open("word_tokenizer.pkl", "rb") as f:
-    word_tokenizer = pickle.load(f)
+# Load models
+def load_models():
+    print("Loading models and data...")
+    main_model = tf.keras.models.load_model("priming_model.keras")
+    embedding_model = tf.keras.models.load_model("embedding_model.keras")
+    
+    # Load char mapping
+    with open("char_mapping.pkl", "rb") as f:
+        char_to_idx, max_word_length = pickle.load(f)
+    
+    # Load word index mapping
+    with open("word_tokenizer.pkl", "rb") as f:
+        word_tokenizer = pickle.load(f)
+        
+    # Load word set
+    with open("training-word-set.txt", "r") as file:
+        all_words = set(line.strip().lower() for line in file.readlines())
+    
+    return main_model, embedding_model, char_to_idx, max_word_length, word_tokenizer, all_words
 
-with open("char_mapping.pkl", "rb") as f:
-    char_to_idx, max_word_length = pickle.load(f)
-
-# Create character-level sequences
-def word_to_char_sequence(word):
+# Convert word to input formats needed by model
+def prepare_word_inputs(word, char_to_idx, max_word_length, word_tokenizer):
+    # Character sequence
     char_seq = np.zeros((1, max_word_length))
-    for i, char in enumerate(word):
+    for i, char in enumerate(word.lower()):
         if i < max_word_length and char in char_to_idx:
             char_seq[0, i] = char_to_idx[char]
-    return char_seq
-
-# Convert a word to sequences (both word and char level)
-def word_to_sequences(word):
-    word_sequence = word_tokenizer.texts_to_sequences([word])
-    word_sequence = pad_sequences(word_sequence, maxlen=1)
-    char_sequence = word_to_char_sequence(word)
-    return word_sequence, char_sequence
+    
+    # Word sequence (if word is in vocabulary)
+    if word.lower() in word_tokenizer.word_index:
+        word_seq = np.array([[word_tokenizer.word_index[word.lower()]]])
+    else:
+        # Handle OOV words by using a placeholder
+        word_seq = np.array([[0]])  # Use 0 as padding/OOV token
+    
+    return word_seq, char_seq
 
 # Find valid words matching a fragment
 def get_matching_words(fragment, word_list):
@@ -39,168 +52,190 @@ def get_matching_words(fragment, word_list):
     return [word for word in word_list if len(word) == len(fragment) and 
             all(f == "_" or f == w for f, w in zip(fragment, word))]
 
-# Orthographic similarity score
+# Calculate orthographic similarity between words
 def get_orthographic_similarity(word1, word2):
-    # Levenshtein distance to measure similarity
     max_len = max(len(word1), len(word2))
-    return 1 - (distance(word1, word2) / max_len)  # Higher value: more similar
+    return 1 - (distance(word1, word2) / max_len)
 
 # Find orthographic neighbors
 def find_orthographic_neighbors(word, word_list, threshold=0.6):
     neighbors = []
     for candidate in word_list:
-        if candidate != word:  # Don't include the word itself lol
-            similarity = get_orthographic_similarity(word, candidate)
-            if similarity >= threshold:
-                neighbors.append((candidate, similarity))
-    return neighbors
+        if candidate != word:
+            sim = get_orthographic_similarity(word, candidate)
+            if sim >= threshold:
+                neighbors.append((candidate, sim))
+    return sorted(neighbors, key=lambda x: x[1], reverse=True)
 
-# Prime identity strongly (word itself) and prime using proportional orthographic spread
-def prime_model_with_spread(logits, priming_words, tokenizer, all_words):
-    # Build a similarity network for activation spreading
-    similarity_network = defaultdict(list)
+# Calculate embedding similarity between two words
+def get_embedding_similarity(word1_emb, word2_emb):
+    # Cosine similarity
+    return np.dot(word1_emb, word2_emb) / (np.linalg.norm(word1_emb) * np.linalg.norm(word2_emb))
+
+# Apply priming using the embeddings from the model
+def prime_with_embeddings(priming_words, target_words, embedding_model, char_to_idx, 
+                          max_word_length, word_tokenizer):
+    # Get embeddings for priming words
+    prime_embeddings = {}
+    for word in priming_words:
+        word_seq, char_seq = prepare_word_inputs(word, char_to_idx, max_word_length, word_tokenizer)
+        # Get embedding from the bottleneck layer
+        embedding = embedding_model.predict([word_seq, char_seq], verbose=0)[0]
+        prime_embeddings[word] = embedding / np.linalg.norm(embedding)  # Normalize
     
-    # Level 1: direct priming of explicitly mentioned word identitiess
-    directly_primed_words = set(priming_words)
+    # Get embeddings for target words
+    target_embeddings = {}
+    for word in target_words:
+        word_seq, char_seq = prepare_word_inputs(word, char_to_idx, max_word_length, word_tokenizer)
+        embedding = embedding_model.predict([word_seq, char_seq], verbose=0)[0]
+        target_embeddings[word] = embedding / np.linalg.norm(embedding)  # Normalize
     
-    # level 2: find orthographic neighbors of primed words for priming
-    for primed_word in priming_words:
-        neighbors = find_orthographic_neighbors(primed_word, all_words)
-        for neighbor, similarity in neighbors:
-            similarity_network[primed_word].append((neighbor, similarity))
-            # Add to the set of words receiving some priming
-            if similarity > 0.6:  # Threshold for significant enough similarity
-                directly_primed_words.add(neighbor)
-    
-    # Apply logit priming boost
-    for word in directly_primed_words:
-        if word in tokenizer.word_index:
-            word_idx = tokenizer.word_index[word]
-            # Directly primed words receive the full boost
-            if word in priming_words:
-                logits[:, word_idx] += 2.0 # TUNE THIS
-            # Orthographic neighbors get a smaller boost based on similarity
-            else:
-                # Find max similarity to any priming word
-                max_similarity = max(get_orthographic_similarity(word, pw) 
-                                    for pw in priming_words)
-                logits[:, word_idx] += max_similarity * 1.2
-    
-    # Activation spread info for user
-    print("\nPriming activation spread:")
-    for word in directly_primed_words:
-        if word in priming_words:
-            print(f"  {word}: +2.0 (direct prime)")
+    # Calculate priming effects 
+    priming_effects = {}
+    for target_word in target_words:
+        # Calculate similarity in the embedding space
+        embedding_effect = 0
+        for prime_word in priming_words:
+            similarity = get_embedding_similarity(prime_embeddings[prime_word], 
+                                                target_embeddings[target_word])
+            embedding_effect = max(embedding_effect, similarity)
+
+        # Orthographic priming (visual form similarity)
+        ortho_effect = 0
+        for prime_word in priming_words:
+            ortho_sim = get_orthographic_similarity(prime_word, target_word)
+            ortho_effect = max(ortho_effect, ortho_sim)
+
+        # Combined effect (combining neural and visual similarity)
+        combined_effect = (0.4 * embedding_effect) + (0.6 * ortho_effect)
+        
+        # Direct match gets maximum boost
+        if target_word in priming_words:
+            priming_effects[target_word] = 2.0  # Direct prime
         else:
-            max_sim = max(get_orthographic_similarity(word, pw) for pw in priming_words)
-            print(f"  {word}: +{max_sim * 1.2:.2f} (orthographic neighbor)")
+            # Scale the effect
+            priming_effects[target_word] = combined_effect * 1.5
+    
+    return priming_effects
+
+# Apply priming boosts to logits
+def apply_priming_to_logits(logits, priming_effects, word_tokenizer):
+    # Create a copy to avoid modifying the original
+    primed_logits = logits.copy()
+    
+    # Apply priming boosts
+    for word, boost in priming_effects.items():
+        if word in word_tokenizer.word_index:
+            word_idx = word_tokenizer.word_index[word]
+            primed_logits[0, word_idx] += boost
+    
+    return primed_logits
+
 
 def main():
-    with open("training-word-set.txt", "r") as file:
-        all_words = set(line.strip().lower() for line in file.readlines())
-
-    priming_words = input("\n\nEnter priming words separated by spaces: ").split()
-    priming_words = [word.lower() for word in priming_words] # make them lower
+    # Load models and data
+    main_model, embedding_model, char_to_idx, max_word_length, word_tokenizer, all_words = load_models()
     
-    # Show orthographic neighbors of priming words
+    # Get priming words
+    priming_words = input("\n\nEnter priming words separated by spaces: ").lower().split()
+    
+    # Print orthographic neighbors of priming words
     print("\nOrthographic neighbors of priming words:")
     for word in priming_words:
-        neighbors = find_orthographic_neighbors(word, all_words)
-        neighbors.sort(key=lambda x: x[1], reverse=True)  # Sort by similarity
-        top_neighbors = neighbors[:5]  # Show top 5 neighbors
-        if top_neighbors:
-            neighbor_str = ", ".join([f"{w} ({s:.2f})" for w, s in top_neighbors])
+        neighbors = find_orthographic_neighbors(word, all_words)[:5]  # Top 5 neighbors
+        if neighbors:
+            neighbor_str = ", ".join([f"{w} ({s:.2f})" for w, s in neighbors])
             print(f"  {word}: {neighbor_str}")
         else:
             print(f"  {word}: No close neighbors found")
     
-    # complete word fragments
-    print("\n\nEnter 'exit' instead of a fragment to exit.")
+    print("\nEnter 'exit' to stop.")
     while True:
-        fragment = input("\nEnter Word Fragment (Ex. W_NT): ").lower()
+        fragment = input("\nEnter Word Fragment (e.g., W_NT): ").lower()
         if fragment == "exit":
             break
-
-        # Find possible solutions
+        
+        # Find valid words matching the fragment
         valid_words = get_matching_words(fragment, all_words)
         if not valid_words:
             print("No valid words found for this fragment.")
-            continue # skip to next fragment - careful to keep fragments within wordset
-        print(f"Possible solutions for fragment from word set: {valid_words}")
+            continue
         
-        # Prepare batch inputs for prediction
-        word_sequences = []
-        char_sequences = []
+        print(f"Possible completions: {', '.join(valid_words)}")
         
-        # We see which of the valid solutions the model likes the best
+        # Prepare inputs for all valid words
+        word_inputs = []
+        char_inputs = []
+        
         for word in valid_words:
-            w_seq, c_seq = word_to_sequences(word)
-            word_sequences.append(w_seq[0])
-            char_sequences.append(c_seq[0])
+            word_seq, char_seq = prepare_word_inputs(word, char_to_idx, max_word_length, word_tokenizer)
+            word_inputs.append(word_seq)
+            char_inputs.append(char_seq)
         
-        # Convert to numpy arrays
-        word_sequences = np.array(word_sequences)
-        char_sequences = np.array(char_sequences)
+        # Concatenate inputs
+        word_inputs = np.vstack(word_inputs)
+        char_inputs = np.vstack(char_inputs)
         
-        # Get model predictions 
-        logits = model.predict([word_sequences, char_sequences])
-
-        # Print the probabilities of each valid word (strength) before priming
-        print("Strength of valid words before priming effects:")
-        sum_valid_prob_before = 0
-        probs_before = softmax(logits[0])
-        for word in valid_words:
+        # Get model predictions without priming
+        logits = main_model.predict([word_inputs, char_inputs], verbose=0)
+        
+        # Calculate baseline probabilities
+        print("\nProbabilities before priming:")
+        probs_before = softmax(logits, axis=1)
+        
+        # Calculate total probability mass for valid words only
+        total_valid_prob = sum(probs_before[i, idx] for i, word in enumerate(valid_words) 
+                              for idx in [word_tokenizer.word_index[word]])
+        
+        for i, word in enumerate(valid_words):
             idx = word_tokenizer.word_index[word]
-            print(f"{word:>5}: prob={probs_before[idx]:.10f}")
-            sum_valid_prob_before += probs_before[idx]
-
-        print("\nProbability of valid word selection before priming effects:")
-        for word in valid_words:
-            idx = word_tokenizer.word_index[word]
-            pct = (probs_before[idx] / sum_valid_prob_before) * 100
-            print(f"{word:>5}: prob={pct:.4f}%")
-
+            raw_prob = probs_before[i, idx]
+            normalized_prob = (raw_prob / total_valid_prob) * 100
+            print(f"{word:>5}: {normalized_prob:.2f}%")
         
-        valid_word_indices = [word_tokenizer.word_index[word] for word in valid_words 
-                             if word in word_tokenizer.word_index]
-
-        # Prime the model with orthographic spread activation
-        prime_model_with_spread(logits, priming_words, word_tokenizer, all_words)
-
-        # Print the probabilities of each valid word (strength) after priming
-        print("\nStrength of valid words after priming effects:")
-        sum_valid_prob_after = 0
-        probs_after = softmax(logits[0])
-        for word in valid_words:
+        # Apply priming
+        priming_effects = prime_with_embeddings(
+            priming_words, valid_words, embedding_model, char_to_idx, 
+            max_word_length, word_tokenizer
+        )
+        
+        # Print priming effects
+        print("\nPriming effects on possible completions:")
+        for word, effect in priming_effects.items():
+            source = "(direct prime)" if word in priming_words else "(spreading activation)"
+            print(f"  {word}: +{effect:.2f} {source}")
+        
+        # Apply priming to logits
+        primed_logits = np.array([apply_priming_to_logits(logits[i:i+1], priming_effects, 
+                                                         word_tokenizer)[0] 
+                                 for i in range(len(valid_words))])
+        
+        # Calculate primed probabilities
+        print("\nProbabilities after priming:")
+        probs_after = softmax(primed_logits, axis=1)
+        
+        # Calculate total probability mass for valid words only
+        total_valid_prob_after = sum(probs_after[i, idx] for i, word in enumerate(valid_words) 
+                                   for idx in [word_tokenizer.word_index[word]])
+        
+        for i, word in enumerate(valid_words):
             idx = word_tokenizer.word_index[word]
-            print(f"{word:>5}: prob={probs_after[idx]:.10f}")
-            sum_valid_prob_after += probs_after[idx]
-
-        print("\nProbability of valid word selection after priming effects:")
-        for word in valid_words:
-            idx = word_tokenizer.word_index[word]
-            pct = (probs_after[idx] / sum_valid_prob_after) * 100
-            print(f"{word:>5}: prob={pct:.4f}%")
-
-        # Mask logits so that only valid solutions are considered 
-        masked_logits = np.full(logits.shape, -np.inf)
-        masked_logits[:, valid_word_indices] = logits[:, valid_word_indices]
-
-        # Select the best solution word from the valid set of solutions
-        best_word_index = np.argmax(masked_logits, axis=1)[0]
-        best_word = next(word for word, index in word_tokenizer.word_index.items() 
-                        if index == best_word_index)
-
+            raw_prob = probs_after[i, idx]
+            normalized_prob = (raw_prob / total_valid_prob_after) * 100
+            print(f"{word:>5}: {normalized_prob:.2f}%")
+        
+        # Get most likely word
+        best_indices = np.argmax(primed_logits, axis=1)
+        best_probs = [probs_after[i, idx] for i, idx in enumerate(best_indices)]
+        best_word_idx = np.argmax(best_probs)
+        best_word = valid_words[best_word_idx]
+        
         print(f"\nPredicted word: {best_word.upper()}")
         
-        # orthographic similarity analysis for the fragment completions for debug
-        print("\nOrthographic similarity of possible completions to priming words:")
+        # Orthographic similarity report for debug
+        print("\nOrthographic similarity to priming words:")
         for word in valid_words:
-            similarities = []
-            for primed_word in priming_words:
-                sim = get_orthographic_similarity(word, primed_word)
-                similarities.append(f"{primed_word}: {sim:.2f}")
-            
+            similarities = [f"{pw}: {get_orthographic_similarity(word, pw):.2f}" for pw in priming_words]
             is_predicted = " (PREDICTED)" if word == best_word else ""
             print(f"  {word}{is_predicted}: {', '.join(similarities)}")
 

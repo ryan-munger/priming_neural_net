@@ -10,5 +10,6 @@ env/
 priming-venv/
 
 # saved model files
+model/*.png
 *.keras
 *.pkl
