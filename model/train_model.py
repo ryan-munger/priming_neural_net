@@ -212,22 +212,24 @@ def main():
     # Create frequency vs. embedding strength scatter plot
     frequencies = [item[1] for item in word_freq_norm]
     norms = [item[2] for item in word_freq_norm]
-    
+
     plt.figure(figsize=(10, 6))
     plt.scatter(frequencies, norms, alpha=0.5)
-    plt.title("Word Frequency vs. Embedding Strength")
-    plt.xlabel("Word Frequency")
-    plt.ylabel("Embedding Strength (Norm)")
+    plt.title("Word Frequency vs. Embedding Strength", fontsize=18, fontweight='bold')
+    plt.xlabel("Word Frequency", fontsize=20, fontweight='bold')
+    plt.ylabel("Embedding Strength (Norm)", fontsize=20, fontweight='bold')
+
     plt.xscale('log')  # Log scale for better visualization
-    
+
     # Add trend line
     z = np.polyfit(np.log(frequencies), norms, 1)
     p = np.poly1d(z)
     plt.plot(sorted(frequencies), p(np.log(sorted(frequencies))), "r--", alpha=0.8)
-    
+
     plt.tight_layout()
     plt.savefig("frequency_vs_strength.png")
     plt.close()
+
 
 if __name__ == "__main__":
     main()
