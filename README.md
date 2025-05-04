@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository contains a neural network model designed to simulate perceptual priming effects in word recognition. The model learns words based on their orthographic (visual) features and frequency, then demonstrates how prior exposure to certain words increases the activation of those words and orthographically similar words during subsequent word recognition tasks.
+This repository contains a neural network model designed to simulate perceptual priming effects in word recognition. The model learns words based on their orthographic (visual) features and frequency, then demonstrates how prior exposure to certain words increases the activation of those words and orthographically similar words during subsequent word recognition tasks. This model provides a mechanistic account of perceptual priming by simulating how the brain integrates word frequency and orthographic structure to support word recognition without explicit recall. It suggests that priming arises from residual activation in a network of frequency-weighted and visually structured representations, allowing both previously seen and visually similar words to become more accessible during tasks like word-fragment completion.
 
 ## Cognitive Science Background
 
